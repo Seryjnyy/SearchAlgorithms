@@ -1,6 +1,7 @@
 import pygame
 from pygame import Rect
 from enum import Enum
+import math
 
 from pygame.locals import (
     QUIT,
@@ -41,7 +42,7 @@ FRONTIER_EMPTY = 0
 FOUND_NOT = 1
 FOUND_END = 2
 # Determine grid
-ROW = 20
+ROW = 15
 COLUMN = ROW
 CELL_WIDTH = (SCREEN_WIDTH-200)/ROW - MARGIN
 CELL_HEIGHT = SCREEN_HEIGHT/COLUMN - MARGIN
@@ -86,11 +87,16 @@ class Button:
 
 
 class Node:
+    # A star specific methods:
+    # calculate_came_from, get_came_from_cost
     def __init__(self, index, rect):
         self.state = 0
         self.index = index
         self.came_from = None
         self.rect = Rect(rect)
+        # A star stuff
+        self.came_from_cost = 0
+        self.goal_cost = None
 
     def is_pressed(self, mouse_pos):
         if self.rect.collidepoint(mouse_pos):
@@ -103,9 +109,36 @@ class Node:
         self.state = node_state
 
     def set_came_from(self, came_from_node):
-        if self.came_from == None:
-            self.came_from = came_from_node
+        self.came_from = came_from_node
+        # A start stuff
+        self.came_from_cost = self.calculate_came_from_cost(came_from_node)
+        
 
+    def calculate_came_from_cost(self, came_from_node):
+        diff = (self.index[0] - came_from_node.index[0], 
+                self.index[1] - came_from_node.index[1])
+        came_from_to = math.sqrt(diff[0] ** 2 + diff[1] ** 2) * 10
+        return came_from_node.get_came_from_cost() + math.floor(came_from_to)
+
+    def calculate_goal_cost(self, end_node):
+        diff = (self.index[0] - end_node.index[0], 
+                self.index[1] - end_node.index[1])
+        # self.goal_cost = abs(diff[0]) + abs(diff[1])
+        self.goal_cost = math.floor(math.sqrt(diff[0] ** 2 + diff[1] ** 2) * 10)
+
+    def display_text(self):
+        font = pygame.font.SysFont('Comic Sans Ms', 10)
+        txt = font.render(str(self.goal_cost), False, BLACK)
+        screen.blit(txt, (self.rect[0], self.rect[1]))
+
+    def get_came_from_cost(self):
+        return self.came_from_cost
+
+    def get_goal_cost(self):
+        return self.goal_cost
+
+    def get_heuristic(self):
+        return self.came_from_cost + self.goal_cost
 
 class Breadth_First_Search():
     def __init__(self, grid, start_node, end_node):
@@ -113,25 +146,28 @@ class Breadth_First_Search():
         self.frontier = [start_node]
         self.start_node = start_node
         self.end_node = end_node
-        self.came_from = {}
+        self.came_from = {} # check is this is actually used
 
     def search_for_end(self):
         if len(self.frontier) == 0:
             return FRONTIER_EMPTY
 
-        current_node = self.frontier.pop(0)
+        current_node = self.pop_node_from_frontier()
         if current_node.state == WALL_NODE:
             return FOUND_NOT
         if current_node.state == END_NODE:
             return FOUND_END
         if current_node.state == FRONTIER_NODE:
             current_node.set_state(SEARCHED_NODE)
-        for next in self.neighbours(current_node):
+        for next in self.neighbours(current_node) or next.calculate_came_from_cost(current_node) < next.get_came_from_cost():
             if next.came_from == None:
                 self.frontier.append(next)
                 next.set_came_from(current_node)
                 if next.state == EMPTY_NODE:
                    next.set_state(FRONTIER_NODE)
+
+    def pop_node_from_frontier(self):
+        return self.frontier.pop(0)
 
     def neighbours(self, node):
         dirs = [[1,0], [0,1], [-1,0], [0,-1]]
@@ -148,46 +184,51 @@ class Breadth_First_Search():
             if node.index == index:
                 return node
 
-class Depth_First_Search():
+class Heuristic_Search(Breadth_First_Search):
     def __init__(self, grid, start_node, end_node):
-        self.grid = grid
-        self.frontier = [start_node]
-        self.start_node = start_node
-        self.end_node = end_node
-        self.came_from = {}
-
-    def search_for_end(self):
-        if len(self.frontier) == 0:
-            return FRONTIER_EMPTY
-
-        current_node = self.frontier.pop()
-        if current_node.state == WALL_NODE:
-            return FOUND_NOT
-        if current_node.state == END_NODE:
-            return FOUND_END
-        if current_node.state == FRONTIER_NODE:
-            current_node.set_state(SEARCHED_NODE)
-        for next in self.neighbours(current_node):
-            if next.came_from == None:
-                self.frontier.append(next)
-                next.set_came_from(current_node)
-                if next.state == EMPTY_NODE:
-                   next.set_state(FRONTIER_NODE)
-
-    def neighbours(self, node):
-        dirs = [[1,0], [0,1], [-1,0], [0,-1]]
-        result = []
-        for dir in dirs:
-            neighbour_index = (node.index[0] + dir[0], node.index[1] + dir[1])
-            neighbour_node = self.find_node_by_index(neighbour_index)
-            if neighbour_node:
-                result.append(neighbour_node)
-        return result
-    
-    def find_node_by_index(self, index):
+        Breadth_First_Search.__init__(self, grid, start_node, end_node)
         for node in self.grid:
-            if node.index == index:
-                return node
+            self.goal_cost = node.calculate_goal_cost(self.end_node)
+    
+    def pop_node_from_frontier(self):
+        lowest_heuristic = 9999999
+        lowest_heuristic_index = None
+        for index, node in enumerate(self.frontier):
+            if node.get_goal_cost() <= lowest_heuristic:
+                lowest_heuristic = node.get_goal_cost()
+                lowest_heuristic_index = index
+        return self.frontier.pop(lowest_heuristic_index)
+
+class Dijkstras(Heuristic_Search):
+    def pop_node_from_frontier(self):
+        lowest_heuristic = 9999999
+        lowest_heuristic_index = None
+        for index, node in enumerate(self.frontier):
+            if node.get_came_from_cost() < lowest_heuristic:
+                lowest_heuristic = node.get_came_from_cost()
+                lowest_heuristic_index = index
+        return self.frontier.pop(lowest_heuristic_index)
+
+# class AStar_Search(Heuristic_Search):
+
+#     def pop_node_from_frontier(self):
+#         lowest_heuristic = 9999999
+#         lowest_heuristic_index = None
+#         for index, node in enumerate(self.frontier):
+#             if node.get_goal_cost() + node.get_came_from_cost()< lowest_heuristic:
+#                 lowest_heuristic = node.get_goal_cost() + node.get_came_from_cost()
+#                 lowest_heuristic_index = index
+#         return self.frontier.pop(lowest_heuristic_index)
+
+#     def calculate_goal_cost(self, end_node):
+#         diff = (self.index[0] - end_node.index[0], 
+#                 self.index[1] - end_node.index[1])
+#         # self.goal_cost = abs(diff[0]) + abs(diff[1])
+#         self.goal_cost = math.floor(math.sqrt(diff[0] ** 2 + diff[1] ** 2) * 10000)
+
+class Depth_First_Search(Breadth_First_Search):
+    def pop_node_from_frontier(self):
+        return self.frontier.pop()
 
 def main():
     pygame.init()
@@ -296,9 +337,11 @@ def show_result(end_found, start_node, end_node):
     for node in path:
         if node.state == SEARCHED_NODE:
             node.state = PATH_NODE
+    print(len(path)-1)
 
 def get_search_algorithm(grid, start_node, end_node):
-    return Depth_First_Search(grid, start_node, end_node)
+    return AStar_Search(grid, start_node, end_node)
+    # return Breadth_First_Search(grid, start_node, end_node)
 
 def calculate_colour_gradient(start_node, node, starting_colour):
     diff = (start_node.index[0] - node.index[0]) + (start_node.index[1] - node.index[1])
@@ -316,3 +359,13 @@ def find_pressed_node(grid, mouse_pos):
 
 if __name__ == '__main__':
     main()
+
+
+    # class AStar_Node(Node):
+    # def __init__(self, index, rect):
+    #     Node.__init__(self, index, rect)
+        
+
+    # def set_came_from(self, came_from_node):
+    #     self.came_from = came_from_node
+        
