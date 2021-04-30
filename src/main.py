@@ -22,16 +22,18 @@ States = Enum(
 
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 800
+FONT_SIZE = 21
 WHITE = (255,255,255)
 RED = (255,0,0)
 GREEN = (0,255,0)
-BLUE = (0,0,255)
+BLUE = (27,83,242)
 LIGHTBLUE = (0,0,120)
 GREY = (192,192,192)
 BLACK = (0,0,0)
+DARK_BLUE = (0,0,66)
 BUTTON_COLOUR = BLUE
 BUTTON_TEXT_COLOUR = WHITE
-MARGIN = 2
+MARGIN = 1
 
 EMPTY_NODE = 0
 START_NODE = 1
@@ -45,7 +47,7 @@ FRONTIER_EMPTY = 0
 FOUND_NOT = 1
 FOUND_END = 2
 # Determine grid
-ROW = 15
+ROW = 50
 COLUMN = ROW
 CELL_WIDTH = (SCREEN_WIDTH-200)/ROW - MARGIN
 CELL_HEIGHT = SCREEN_HEIGHT/COLUMN - MARGIN
@@ -75,6 +77,20 @@ class Grid:
         for node in self.grid:
             node.set_state(EMPTY_NODE)
             node.came_from = None
+    
+    def clear_searched_nodes(self):
+        for node in self.grid:
+            if node.state == SEARCHED_NODE or node.state == FRONTIER_NODE or node.state == PATH_NODE:
+                node.set_state(EMPTY_NODE)
+                node.clear_came_from()
+            if node.state == END_NODE:
+                node.clear_came_from()
+
+    def clear_wall_nodes(self):
+        for node in self.grid:
+            if node.state == WALL_NODE:
+                node.set_state(EMPTY_NODE)
+
     
 class Button:
     def __init__(self,screen, font, x, y, width, height, message):
@@ -113,6 +129,10 @@ class Node:
         self.came_from = came_from_node
         # A start stuff
         self.came_from_cost = self.calculate_came_from_cost(came_from_node)
+
+    def clear_came_from(self):
+        self.came_from = None
+        self.came_from_cost = 0
         
 
     def calculate_came_from_cost(self, came_from_node):
@@ -127,10 +147,10 @@ class Node:
         # self.goal_cost = abs(diff[0]) + abs(diff[1])
         self.goal_cost = math.floor(math.sqrt(diff[0] ** 2 + diff[1] ** 2) * multiplier)
 
-    def display_text(self):
-        font = pygame.font.SysFont('Comic Sans Ms', 10)
-        txt = font.render(str(self.goal_cost), False, BLACK)
-        screen.blit(txt, (self.rect[0], self.rect[1]))
+    # def display_text(self):
+    #     font = pygame.font.SysFont('Comic Sans Ms', 10)
+    #     txt = font.render(str(self.goal_cost), False, BLACK)
+    #     screen.blit(txt, (self.rect[0], self.rect[1]))
 
     def get_came_from_cost(self):
         return self.came_from_cost
@@ -147,7 +167,6 @@ class Breadth_First_Search():
         self.frontier = [start_node]
         self.start_node = start_node
         self.end_node = end_node
-        self.came_from = {} # check is this is actually used
 
     def search_for_end(self):
         if len(self.frontier) == 0:
@@ -161,6 +180,9 @@ class Breadth_First_Search():
         if current_node.state == FRONTIER_NODE:
             current_node.set_state(SEARCHED_NODE)
         for next in self.neighbours(current_node):
+            if next.state == WALL_NODE:
+                continue
+
             if next.came_from == None or next.calculate_came_from_cost(current_node) < next.get_came_from_cost():
                 self.frontier.append(next)
                 next.set_came_from(current_node)
@@ -204,16 +226,6 @@ class Greedy_Best_First_Search(Heuristic_Search):
     def calculate_node_score(self, node):
         return node.get_goal_cost()
 
-# class Dijkstras(Heuristic_Search):
-#     def pop_node_from_frontier(self):
-#         lowest_heuristic = 9999999
-#         lowest_heuristic_index = None
-#         for index, node in enumerate(self.frontier):
-#             if node.get_came_from_cost() < lowest_heuristic:
-#                 lowest_heuristic = node.get_came_from_cost()
-#                 lowest_heuristic_index = index
-#         return self.frontier.pop(lowest_heuristic_index)
-
 class AStar_Search(Heuristic_Search):
     def __init__(self, grid, start_node, end_node):
         Heuristic_Search.__init__(self, grid, start_node, end_node, 18)
@@ -229,7 +241,7 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT));
     blue_gradient = [0,0,123]
-    screen.fill(BLACK)
+    screen.fill(DARK_BLUE)
     clock = pygame.time.Clock()
     state = States.SET_START
 
@@ -237,10 +249,18 @@ def main():
     grid = _grid.grid
     search = None
 
-    font = pygame.font.SysFont('Comic Sans Ms', 30)
+    font = pygame.font.Font('../fonts/OpenSans-Bold.ttf', FONT_SIZE)
 
-    reset_button = Button(screen, font, 850, 100, 100, 50, "Reset")
-    start_button = Button(screen, font, 850, 200, 100, 50, "Start")
+    BUTTON_WIDTH = 186
+    BUTTON_HEIGHT = 50
+    BUTTON_X = 807
+    BUTTON_Y = 100
+    clear_button = Button(screen, font, BUTTON_X, BUTTON_Y*1, BUTTON_WIDTH, BUTTON_HEIGHT, "   Clear search")
+    reset_button = Button(screen, font, BUTTON_X, BUTTON_Y*2, BUTTON_WIDTH, BUTTON_HEIGHT, "           Reset")
+    bfs_button = Button(screen, font, BUTTON_X, BUTTON_Y*3, BUTTON_WIDTH, BUTTON_HEIGHT, "     Breadth First")
+    dfs_button = Button(screen, font, BUTTON_X, BUTTON_Y*4, BUTTON_WIDTH, BUTTON_HEIGHT, "     Depth First")
+    gfs_button = Button(screen, font, BUTTON_X, BUTTON_Y*5, BUTTON_WIDTH, BUTTON_HEIGHT, "Greedy Best-First")
+    astar_button = Button(screen, font, BUTTON_X, BUTTON_Y*6, BUTTON_WIDTH, BUTTON_HEIGHT, "              A*")
 
     running = True
     mouse_down = False
@@ -263,10 +283,18 @@ def main():
                     _grid.reset_grid()
                     state = States.SET_START
                     continue
-                if start_button.is_pressed(mouse_pos):
-                    if start_node and end_node:
+                if clear_button.is_pressed(mouse_pos):
+                    _grid.clear_searched_nodes()
+                    state = States.SET_BLOCK
+                    continue
+                
+                _search = None
+                if (start_node != None) and (end_node != None) :
+                    _search = check_which_algorithm_was_choosen(mouse_pos, grid, start_node, end_node, bfs_button, dfs_button, gfs_button, astar_button)
+                    if _search :
+                        _grid.clear_searched_nodes()
                         state = States.START_SEARCH
-                        search = get_search_algorithm(grid, start_node, end_node)
+                        search = _search
                         continue
 
                 node = find_pressed_node(grid, mouse_pos)
@@ -319,6 +347,16 @@ def main():
         pygame.display.update()
 
 
+def check_which_algorithm_was_choosen(mouse_pos, grid, start_node, end_node, bfs_button, dfs_button, gfs_button, astar_button):
+    if bfs_button.is_pressed(mouse_pos):
+        return Breadth_First_Search(grid, start_node, end_node)
+    if dfs_button.is_pressed(mouse_pos):
+        return Depth_First_Search(grid, start_node, end_node)
+    if gfs_button.is_pressed(mouse_pos):
+        return Greedy_Best_First_Search(grid, start_node, end_node)
+    if astar_button.is_pressed(mouse_pos):
+        return AStar_Search(grid, start_node, end_node)
+
 def show_result(end_found, start_node, end_node):
     if not end_found:
         print("Cannot find end")
@@ -335,13 +373,13 @@ def show_result(end_found, start_node, end_node):
     print(len(path)-1)
 
 def get_search_algorithm(grid, start_node, end_node):
-    return Greedy_Best_First_Search(grid, start_node, end_node)
+    return AStar_Search(grid, start_node, end_node)
     # return Breadth_First_Search(grid, start_node, end_node)
 
 def calculate_colour_gradient(start_node, node, starting_colour):
-    diff = (start_node.index[0] - node.index[0]) + (start_node.index[1] - node.index[1])
+    diff = abs(start_node.index[0] - node.index[0]) + abs(start_node.index[1] - node.index[1])
     new_colour = starting_colour
-    new_colour[0] = abs(int(diff*(255/(ROW-1 + ROW-1 - 1))))
+    new_colour[0] = abs(int(diff*(255/(ROW*2))))
     return new_colour
 
 
@@ -356,4 +394,14 @@ if __name__ == '__main__':
     main()
 
 
+
+# class Dijkstras(Heuristic_Search):
+#     def pop_node_from_frontier(self):
+#         lowest_heuristic = 9999999
+#         lowest_heuristic_index = None
+#         for index, node in enumerate(self.frontier):
+#             if node.get_came_from_cost() < lowest_heuristic:
+#                 lowest_heuristic = node.get_came_from_cost()
+#                 lowest_heuristic_index = index
+#         return self.frontier.pop(lowest_heuristic_index)
         
