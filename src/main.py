@@ -35,6 +35,11 @@ BUTTON_COLOUR = BLUE
 BUTTON_TEXT_COLOUR = WHITE
 MARGIN = 1
 
+BUTTON_WIDTH = 186
+BUTTON_HEIGHT = 50
+BUTTON_X = 807
+BUTTON_Y = 100
+
 EMPTY_NODE = 0
 START_NODE = 1
 END_NODE = 2
@@ -91,6 +96,11 @@ class Grid:
             if node.state == WALL_NODE:
                 node.set_state(EMPTY_NODE)
 
+    def find_pressed_node(self, mouse_pos):
+        for node in self.grid:
+            if node.is_pressed(mouse_pos):
+                return node
+
     
 class Button:
     def __init__(self,screen, font, x, y, width, height, message):
@@ -99,13 +109,12 @@ class Button:
         screen.blit(button_text, (x,y))
         self.rect = Rect(x, y, width, height)
 
+
     def is_pressed(self, mouse_pos):
         if self.rect.collidepoint(mouse_pos):
             return True
-
+        
 class Node:
-    # A star specific methods:
-    # calculate_came_from, get_came_from_cost
     def __init__(self, index, rect):
         self.state = 0
         self.index = index
@@ -144,14 +153,17 @@ class Node:
     def calculate_goal_cost(self, end_node, multiplier):
         diff = (self.index[0] - end_node.index[0], 
                 self.index[1] - end_node.index[1])
-        # self.goal_cost = abs(diff[0]) + abs(diff[1])
+        # self.goal_cost = abs(diff[0]) + abs(diff[1]) # manhattan distance
         self.goal_cost = math.floor(math.sqrt(diff[0] ** 2 + diff[1] ** 2) * multiplier)
 
-    # def display_text(self):
-    #     font = pygame.font.SysFont('Comic Sans Ms', 10)
-    #     txt = font.render(str(self.goal_cost), False, BLACK)
-    #     screen.blit(txt, (self.rect[0], self.rect[1]))
+    def turn_into_wall(self):
+        if self.state == EMPTY_NODE:
+            self.set_state(WALL_NODE)
 
+    def from_wall_turn_into_empty(self):
+        if self.state == WALL_NODE:
+            self.set_state(EMPTY_NODE)
+            
     def get_came_from_cost(self):
         return self.came_from_cost
 
@@ -251,11 +263,7 @@ def main():
 
     font = pygame.font.Font('../fonts/OpenSans-Bold.ttf', FONT_SIZE)
 
-    BUTTON_WIDTH = 186
-    BUTTON_HEIGHT = 50
-    BUTTON_X = 807
-    BUTTON_Y = 100
-    clear_button = Button(screen, font, BUTTON_X, BUTTON_Y*1, BUTTON_WIDTH, BUTTON_HEIGHT, "   Clear search")
+    clear_button = Button(screen, font, BUTTON_X, BUTTON_Y*1, BUTTON_WIDTH, BUTTON_HEIGHT, "           Clear")
     reset_button = Button(screen, font, BUTTON_X, BUTTON_Y*2, BUTTON_WIDTH, BUTTON_HEIGHT, "           Reset")
     bfs_button = Button(screen, font, BUTTON_X, BUTTON_Y*3, BUTTON_WIDTH, BUTTON_HEIGHT, "     Breadth First")
     dfs_button = Button(screen, font, BUTTON_X, BUTTON_Y*4, BUTTON_WIDTH, BUTTON_HEIGHT, "     Depth First")
@@ -297,29 +305,37 @@ def main():
                         search = _search
                         continue
 
-                node = find_pressed_node(grid, mouse_pos)
+                node = _grid.find_pressed_node(grid, mouse_pos)
                 if node is None:
                     continue
 
-                if state == States.SET_START:
-                    state = States.SET_END
-                    node.set_state(START_NODE)
-                    start_node = node
-                elif state == States.SET_END:
-                    state = States.SET_BLOCK
-                    if node.state == EMPTY_NODE:
-                        node.set_state(END_NODE)
-                        end_node = node
-                elif state == States.SET_BLOCK:
-                    if node.state == EMPTY_NODE:
-                        node.set_state(WALL_NODE)
+                if event.button == 3:
+                    right_mouse_down = True
+                    if node.state == WALL_NODE:
+                        node.set_state(EMPTY_NODE)
+                        continue
+                if event.button == 1:
+                    if state == States.SET_START:
+                        state = States.SET_END
+                        node.set_state(START_NODE)
+                        start_node = node
+                    elif state == States.SET_END:
+                        state = States.SET_BLOCK
+                        if node.state == EMPTY_NODE:
+                            node.set_state(END_NODE)
+                            end_node = node
+                    elif state == States.SET_BLOCK:
+                        node.turn_into_wall()
             elif event.type == MOUSEBUTTONUP:
                 mouse_down = False
-            elif event.type == MOUSEMOTION and state == States.SET_BLOCK and mouse_down:
-                node = find_pressed_node(grid, mouse_pos)
+                right_mouse_down = False
+            elif event.type == MOUSEMOTION and state == States.SET_BLOCK and (mouse_down or right_mouse_down):
+                node = _grid.find_pressed_node(grid, mouse_pos)
                 if node != None:
-                    if node.state == EMPTY_NODE:
-                        node.set_state(WALL_NODE)
+                    if right_mouse_down:
+                        node.from_wall_turn_into_empty()
+                    elif mouse_down:
+                        node.turn_into_wall()
 
 
         if state == States.START_SEARCH:
@@ -337,9 +353,6 @@ def main():
             colour = node.get_colour()
             if colour == BLUE:
                 colour = calculate_colour_gradient(start_node, node, blue_gradient)
-            
-           # if colour == BLACK:
-               # print("PAINTING PATH")
             pygame.draw.rect(screen, colour, node.rect)
 
         
@@ -372,36 +385,14 @@ def show_result(end_found, start_node, end_node):
             node.state = PATH_NODE
     print(len(path)-1)
 
-def get_search_algorithm(grid, start_node, end_node):
-    return AStar_Search(grid, start_node, end_node)
-    # return Breadth_First_Search(grid, start_node, end_node)
-
 def calculate_colour_gradient(start_node, node, starting_colour):
     diff = abs(start_node.index[0] - node.index[0]) + abs(start_node.index[1] - node.index[1])
     new_colour = starting_colour
     new_colour[0] = abs(int(diff*(255/(ROW*2))))
     return new_colour
 
-
-
-def find_pressed_node(grid, mouse_pos):
-    for node in grid:
-        if node.is_pressed(mouse_pos):
-            return node
-
-
 if __name__ == '__main__':
     main()
 
 
-
-# class Dijkstras(Heuristic_Search):
-#     def pop_node_from_frontier(self):
-#         lowest_heuristic = 9999999
-#         lowest_heuristic_index = None
-#         for index, node in enumerate(self.frontier):
-#             if node.get_came_from_cost() < lowest_heuristic:
-#                 lowest_heuristic = node.get_came_from_cost()
-#                 lowest_heuristic_index = index
-#         return self.frontier.pop(lowest_heuristic_index)
         
