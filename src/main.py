@@ -2,9 +2,7 @@ import pygame
 from pygame import Rect
 from enum import Enum
 import math
-
-# IN the search alogrithms
-# do not add wall neighbours to the frontier
+from settings import *
 
 from pygame.locals import (
     QUIT,
@@ -19,53 +17,6 @@ States = Enum(
     'States',
     'SET_START SET_END SET_BLOCK START_SEARCH FOUND_END'
 )
-
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 800
-FONT_SIZE = 21
-WHITE = (255,255,255)
-RED = (255,0,0)
-GREEN = (0,255,0)
-BLUE = (27,83,242)
-LIGHTBLUE = (0,0,120)
-GREY = (192,192,192)
-BLACK = (0,0,0)
-DARK_BLUE = (0,0,66)
-BUTTON_COLOUR = BLUE
-BUTTON_TEXT_COLOUR = WHITE
-MARGIN = 1
-
-BUTTON_WIDTH = 186
-BUTTON_HEIGHT = 50
-BUTTON_X = 807
-BUTTON_Y = 100
-
-EMPTY_NODE = 0
-START_NODE = 1
-END_NODE = 2
-WALL_NODE = 3
-FRONTIER_NODE = 4
-SEARCHED_NODE = 5
-PATH_NODE = 6
-# Search result
-FRONTIER_EMPTY = 0
-FOUND_NOT = 1
-FOUND_END = 2
-# Determine grid
-ROW = 50
-COLUMN = ROW
-CELL_WIDTH = (SCREEN_WIDTH-200)/ROW - MARGIN
-CELL_HEIGHT = SCREEN_HEIGHT/COLUMN - MARGIN
-
-COLOURS = {
-    EMPTY_NODE : WHITE,
-    START_NODE : RED, 
-    END_NODE : GREEN, 
-    WALL_NODE : GREY,
-    FRONTIER_NODE : LIGHTBLUE,
-    SEARCHED_NODE : BLUE,
-    PATH_NODE : BLACK
-}
 
 class Grid:
     def __init__(self):
@@ -131,6 +82,12 @@ class Node:
     def get_colour(self):
         return COLOURS[self.state]
 
+    def calculate_gradient(self, start_node, start_colour):
+        diff = abs(start_node.index[0] - self.index[0]) + abs(start_node.index[1] - self.index[1])
+        new_colour = start_colour
+        new_colour[0] = abs(int(diff*(255/(ROW*2))))
+        return new_colour
+
     def set_state(self, node_state):
         self.state = node_state
 
@@ -143,7 +100,6 @@ class Node:
         self.came_from = None
         self.came_from_cost = 0
         
-
     def calculate_came_from_cost(self, came_from_node):
         diff = (self.index[0] - came_from_node.index[0], 
                 self.index[1] - came_from_node.index[1])
@@ -249,26 +205,34 @@ class Depth_First_Search(Breadth_First_Search):
     def pop_node_from_frontier(self):
         return self.frontier.pop()
 
+class GUI:
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT));
+        self.screen.fill(DARK_BLUE)
+        self.font = pygame.font.Font('../fonts/OpenSans-Bold.ttf', FONT_SIZE)
+        self.y_button_stack = 0
+
+    def create_button(self, text):
+        self.y_button_stack = self.y_button_stack + 1
+        return Button(self.screen, self.font, BUTTON_X, BUTTON_Y*self.y_button_stack, BUTTON_WIDTH, BUTTON_HEIGHT, text)
+
+
 def main():
-    pygame.init()
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT));
-    blue_gradient = [0,0,123]
-    screen.fill(DARK_BLUE)
     clock = pygame.time.Clock()
     state = States.SET_START
 
     _grid = Grid()
     grid = _grid.grid
     search = None
+    gui = GUI()
 
-    font = pygame.font.Font('../fonts/OpenSans-Bold.ttf', FONT_SIZE)
-
-    clear_button = Button(screen, font, BUTTON_X, BUTTON_Y*1, BUTTON_WIDTH, BUTTON_HEIGHT, "           Clear")
-    reset_button = Button(screen, font, BUTTON_X, BUTTON_Y*2, BUTTON_WIDTH, BUTTON_HEIGHT, "           Reset")
-    bfs_button = Button(screen, font, BUTTON_X, BUTTON_Y*3, BUTTON_WIDTH, BUTTON_HEIGHT, "     Breadth First")
-    dfs_button = Button(screen, font, BUTTON_X, BUTTON_Y*4, BUTTON_WIDTH, BUTTON_HEIGHT, "     Depth First")
-    gfs_button = Button(screen, font, BUTTON_X, BUTTON_Y*5, BUTTON_WIDTH, BUTTON_HEIGHT, "Greedy Best-First")
-    astar_button = Button(screen, font, BUTTON_X, BUTTON_Y*6, BUTTON_WIDTH, BUTTON_HEIGHT, "              A*")
+    clear_button = gui.create_button("           Clear")
+    reset_button = gui.create_button("           Reset")
+    bfs_button = gui.create_button("    Breadth First")
+    dfs_button  = gui.create_button("     Depth First")
+    gfs_button = gui.create_button("Greedy Best-First")
+    astar_button = gui.create_button("              A*")
 
     running = True
     mouse_down = False
@@ -290,10 +254,13 @@ def main():
                 if reset_button.is_pressed(mouse_pos):
                     _grid.reset_grid()
                     state = States.SET_START
+                    start_node = None
+                    end_node = None
                     continue
                 if clear_button.is_pressed(mouse_pos):
                     _grid.clear_searched_nodes()
-                    state = States.SET_BLOCK
+                    if start_node and end_node:
+                        state = States.SET_BLOCK
                     continue
                 
                 _search = None
@@ -305,7 +272,7 @@ def main():
                         search = _search
                         continue
 
-                node = _grid.find_pressed_node(grid, mouse_pos)
+                node = _grid.find_pressed_node(mouse_pos)
                 if node is None:
                     continue
 
@@ -330,7 +297,7 @@ def main():
                 mouse_down = False
                 right_mouse_down = False
             elif event.type == MOUSEMOTION and state == States.SET_BLOCK and (mouse_down or right_mouse_down):
-                node = _grid.find_pressed_node(grid, mouse_pos)
+                node = _grid.find_pressed_node(mouse_pos)
                 if node != None:
                     if right_mouse_down:
                         node.from_wall_turn_into_empty()
@@ -352,11 +319,10 @@ def main():
         for node in grid:
             colour = node.get_colour()
             if colour == BLUE:
-                colour = calculate_colour_gradient(start_node, node, blue_gradient)
-            pygame.draw.rect(screen, colour, node.rect)
+                colour = node.calculate_gradient(start_node, COLOUR_GRADIENT) # [0,0,123]
+            pygame.draw.rect(gui.screen, colour, node.rect)
 
-        
-        clock.tick(120)
+        clock.tick(SEARCH_SPEED)
         pygame.display.update()
 
 
@@ -384,12 +350,6 @@ def show_result(end_found, start_node, end_node):
         if node.state == SEARCHED_NODE:
             node.state = PATH_NODE
     print(len(path)-1)
-
-def calculate_colour_gradient(start_node, node, starting_colour):
-    diff = abs(start_node.index[0] - node.index[0]) + abs(start_node.index[1] - node.index[1])
-    new_colour = starting_colour
-    new_colour[0] = abs(int(diff*(255/(ROW*2))))
-    return new_colour
 
 if __name__ == '__main__':
     main()
