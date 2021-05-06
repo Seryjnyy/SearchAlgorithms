@@ -3,6 +3,10 @@ from pygame import Rect
 from enum import Enum
 import math
 from settings import *
+import sys
+import random
+import pandas
+from opensimplex import OpenSimplex
 
 from pygame.locals import (
     QUIT,
@@ -21,6 +25,8 @@ States = Enum(
 class Grid:
     def __init__(self):
         self.create_grid()
+        self.openSimplex = OpenSimplex(12345)
+        # self.offset = 0
 
     def create_grid(self):
         self.grid = []
@@ -29,11 +35,17 @@ class Grid:
                 node = Node((row, column), (((MARGIN + CELL_WIDTH) * column + MARGIN), ((MARGIN + CELL_HEIGHT) * row + MARGIN), CELL_WIDTH, CELL_HEIGHT))
                 self.grid.append(node)
 
+
     def reset_grid(self):
         for node in self.grid:
             node.set_state(EMPTY_NODE)
-            node.came_from = None
-    
+            node.clear_came_from()
+            node.weight = 0
+
+    def claer_weight_map(self):
+        # weight
+        node.weight = 0
+
     def clear_searched_nodes(self):
         for node in self.grid:
             if node.state == SEARCHED_NODE or node.state == FRONTIER_NODE or node.state == PATH_NODE:
@@ -51,8 +63,60 @@ class Grid:
         for node in self.grid:
             if node.is_pressed(mouse_pos):
                 return node
+    # weight
+    def create_weighted_grid(self):
+        # self.offset = self.offset + 1
+        for node in self.grid:
+            node.weight = self.calculate_noise_value(node)
+        self.map_values()
 
+    def calculate_noise_value(self, node, offset = 1):
+        x = node.index[0]
+        y = node.index[1]
+        return self.openSimplex.noise2d(x, y)
+        # octaves = 2
+        # offset = 0
+        # start_amplitude = 2
+        # output = 0
+        # og_offset = random.random() * 2 * math.pi
+        # for n in range(octaves):
+        #     frequency = 2**n
+        #     amplitude = start_amplitude / float(n+1)
+
+        #     offset = x * frequency * 2 * math.pi + og_offset
+        #     output += math.sin(y* frequency * 2* math.pi + og_offset) * amplitude
+
+        # return output # number is temporary
     
+    def map_values(self):
+        smallest_value = sys.maxsize
+        biggest_value =  - sys.maxsize 
+
+        for node in self.grid:
+            if node.weight > biggest_value:
+                biggest_value = node.weight
+            elif node.weight < smallest_value:
+                smallest_value = node.weight
+        
+        smallest_value = math.floor(smallest_value)
+        biggest_value = math.floor(biggest_value)
+
+
+        value_range = abs(smallest_value) + abs(biggest_value)
+        bound = 127 / value_range 
+        for node in self.grid:
+            node.weight = math.floor(127 + (node.weight * bound))
+
+
+    def check_if_end_node_set(self):
+        for node in self.grid:
+            if node.state == END_NODE:
+                return True
+
+    def check_if_start_node_set(self):
+        for node in self.grid:
+            if node.state == START_NODE:
+                return True
 class Button:
     def __init__(self,screen, font, x, y, width, height, message):
         pygame.draw.rect(screen, BUTTON_COLOUR, [x, y, width, height])
@@ -74,12 +138,19 @@ class Node:
         # A star stuff
         self.came_from_cost = 0
         self.goal_cost = None
+        # weight
+        self.weight = 0
+        
 
     def is_pressed(self, mouse_pos):
         if self.rect.collidepoint(mouse_pos):
             return True
         
     def get_colour(self):
+        if self.state == EMPTY_NODE:
+            # (0,0,0) looks really cool for emty cells
+            weigth_colour = (0, self.weight, self.weight)
+            return weigth_colour
         return COLOURS[self.state]
 
     def calculate_gradient(self, start_node, start_colour):
@@ -233,6 +304,7 @@ def main():
     dfs_button  = gui.create_button("     Depth First")
     gfs_button = gui.create_button("Greedy Best-First")
     astar_button = gui.create_button("              A*")
+    create_noise_map_button =  gui.create_button("Create Noise Map")
 
     running = True
     mouse_down = False
@@ -262,7 +334,9 @@ def main():
                     if start_node and end_node:
                         state = States.SET_BLOCK
                     continue
-                
+                if create_noise_map_button.is_pressed(mouse_pos):
+                    _grid.create_weighted_grid()
+
                 _search = None
                 if (start_node != None) and (end_node != None) :
                     _search = check_which_algorithm_was_choosen(mouse_pos, grid, start_node, end_node, bfs_button, dfs_button, gfs_button, astar_button)
@@ -278,6 +352,26 @@ def main():
 
                 if event.button == 3:
                     right_mouse_down = True
+                    if node.state == END_NODE:
+                        node.set_state(EMPTY_NODE)
+                        end_node = None
+                        if start_node == None:
+                            state = States.SET_START
+                        else:
+                            state = States.SET_END
+                    if node.state == START_NODE:
+                        node.set_state(EMPTY_NODE)
+                        start_node = None
+                        state = States.SET_START
+                    #     if _grid.check_if_start_node_set():
+                    #         state = States.SET_START
+                    #     else:
+                    #         state = States.SET_END
+
+                    # if node.state == START_NODE:
+                    #     node.set_state(EMPTY_NODE)
+                    #     start_node == None
+                    #     state = States.SET_START
                     if node.state == WALL_NODE:
                         node.set_state(EMPTY_NODE)
                         continue
