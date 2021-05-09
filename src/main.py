@@ -5,8 +5,7 @@ import math
 from settings import *
 import sys
 import random
-import pandas
-from opensimplex import OpenSimplex
+from perlin import PerlinNoiseFactory
 
 from pygame.locals import (
     QUIT,
@@ -25,8 +24,7 @@ States = Enum(
 class Grid:
     def __init__(self):
         self.create_grid()
-        self.openSimplex = OpenSimplex(12345)
-        # self.offset = 0
+        self.perlin_noise_factory = PerlinNoiseFactory(2, octaves = OCTAVES, unbias = UNBIAS)
 
     def create_grid(self):
         self.grid = []
@@ -42,10 +40,6 @@ class Grid:
             node.clear_came_from()
             node.weight = 0
 
-    def claer_weight_map(self):
-        # weight
-        node.weight = 0
-
     def clear_searched_nodes(self):
         for node in self.grid:
             if node.state == SEARCHED_NODE or node.state == FRONTIER_NODE or node.state == PATH_NODE:
@@ -54,39 +48,15 @@ class Grid:
             if node.state == END_NODE:
                 node.clear_came_from()
 
-    def clear_wall_nodes(self):
-        for node in self.grid:
-            if node.state == WALL_NODE:
-                node.set_state(EMPTY_NODE)
-
     def find_pressed_node(self, mouse_pos):
         for node in self.grid:
             if node.is_pressed(mouse_pos):
                 return node
-    # weight
-    def create_weighted_grid(self):
-        # self.offset = self.offset + 1
-        for node in self.grid:
-            node.weight = self.calculate_noise_value(node)
-        self.map_values()
 
-    def calculate_noise_value(self, node, offset = 1):
+    def calculate_noise_value(self, node):
         x = node.index[0]
         y = node.index[1]
-        return self.openSimplex.noise2d(x, y)
-        # octaves = 2
-        # offset = 0
-        # start_amplitude = 2
-        # output = 0
-        # og_offset = random.random() * 2 * math.pi
-        # for n in range(octaves):
-        #     frequency = 2**n
-        #     amplitude = start_amplitude / float(n+1)
-
-        #     offset = x * frequency * 2 * math.pi + og_offset
-        #     output += math.sin(y* frequency * 2* math.pi + og_offset) * amplitude
-
-        # return output # number is temporary
+        return self.perlin_noise_factory(x / ROW + self.offset, y / ROW + self.offset) * 20
     
     def map_values(self):
         smallest_value = sys.maxsize
@@ -100,23 +70,20 @@ class Grid:
         
         smallest_value = math.floor(smallest_value)
         biggest_value = math.floor(biggest_value)
-
+        
 
         value_range = abs(smallest_value) + abs(biggest_value)
         bound = 127 / value_range 
         for node in self.grid:
             node.weight = math.floor(127 + (node.weight * bound))
 
-
-    def check_if_end_node_set(self):
+    # weight
+    def create_weighted_grid(self):
+        self.offset = random.random()
         for node in self.grid:
-            if node.state == END_NODE:
-                return True
+            node.weight = self.calculate_noise_value(node)
+        self.map_values()
 
-    def check_if_start_node_set(self):
-        for node in self.grid:
-            if node.state == START_NODE:
-                return True
 class Button:
     def __init__(self,screen, font, x, y, width, height, message):
         pygame.draw.rect(screen, BUTTON_COLOUR, [x, y, width, height])
@@ -135,22 +102,20 @@ class Node:
         self.index = index
         self.came_from = None
         self.rect = Rect(rect)
-        # A star stuff
+        # Heuristic serch stuff
         self.came_from_cost = 0
         self.goal_cost = None
-        # weight
+        # weight search stuff
         self.weight = 0
         
-
     def is_pressed(self, mouse_pos):
         if self.rect.collidepoint(mouse_pos):
             return True
         
     def get_colour(self):
         if self.state == EMPTY_NODE:
-            # (0,0,0) looks really cool for emty cells
-            weigth_colour = (0, self.weight, self.weight)
-            return weigth_colour
+            weight_colour = (0, self.weight, self.weight)
+            return weight_colour
         return COLOURS[self.state]
 
     def calculate_gradient(self, start_node, start_colour):
@@ -164,7 +129,6 @@ class Node:
 
     def set_came_from(self, came_from_node):
         self.came_from = came_from_node
-        # A start stuff
         self.came_from_cost = self.calculate_came_from_cost(came_from_node)
 
     def clear_came_from(self):
@@ -197,8 +161,8 @@ class Node:
     def get_goal_cost(self):
         return self.goal_cost
 
-    def get_heuristic(self):
-        return self.came_from_cost + self.goal_cost
+    # def get_heuristic(self):
+    #     return self.came_from_cost + self.goal_cost
 
 class Breadth_First_Search():
     def __init__(self, grid, start_node, end_node):
@@ -246,14 +210,18 @@ class Breadth_First_Search():
             if node.index == index:
                 return node
 
-class Heuristic_Search(Breadth_First_Search):
+class Depth_First_Search(Breadth_First_Search):
+    def pop_node_from_frontier(self):
+        return self.frontier.pop()
+
+class Heuristic_Distance_To_Goal(Breadth_First_Search):
     def __init__(self, grid, start_node, end_node, multiplier = 10):
         Breadth_First_Search.__init__(self, grid, start_node, end_node)
         for node in self.grid:
             self.goal_cost = node.calculate_goal_cost(self.end_node, multiplier)
 
     def pop_node_from_frontier(self):
-        lowest_heuristic = 9999999
+        lowest_heuristic = sys.maxsize
         lowest_heuristic_index = None
         for index, node in enumerate(self.frontier):
             if self.calculate_node_score(node) <= lowest_heuristic:
@@ -261,20 +229,39 @@ class Heuristic_Search(Breadth_First_Search):
                 lowest_heuristic_index = index
         return self.frontier.pop(lowest_heuristic_index)
     
-class Greedy_Best_First_Search(Heuristic_Search):
+
+class Heuristic_Weight(Heuristic_Distance_To_Goal):
+    def __init__(self,  grid, start_node, end_node):
+        super().__init__(grid, start_node, end_node)
+        self.closed = []
+
+    def pop_node_from_frontier(self):
+        lowest_heuristic = -sys.maxsize
+        lowest_heuristic_index = None
+        for index, node in enumerate(self.frontier):
+            if node not in self.closed:
+                if self.calculate_node_score(node) >= lowest_heuristic:
+                    lowest_heuristic = self.calculate_node_score(node)
+                    lowest_heuristic_index = index
+        node = self.frontier.pop(lowest_heuristic_index)
+        self.closed.append(node)
+        return node
+        
+    def calculate_node_score(self, node):
+        return node.weight
+    
+class Greedy_Best_First_Search(Heuristic_Distance_To_Goal):
     def calculate_node_score(self, node):
         return node.get_goal_cost()
 
-class AStar_Search(Heuristic_Search):
+# distance to goal heuristic + came from cost
+class AStar_Search(Heuristic_Distance_To_Goal):
     def __init__(self, grid, start_node, end_node):
-        Heuristic_Search.__init__(self, grid, start_node, end_node, 18)
+        Heuristic_Distance_To_Goal.__init__(self, grid, start_node, end_node, 18)
 
     def calculate_node_score(self, node):
         return node.get_goal_cost() + node.get_came_from_cost()
 
-class Depth_First_Search(Breadth_First_Search):
-    def pop_node_from_frontier(self):
-        return self.frontier.pop()
 
 class GUI:
     def __init__(self):
@@ -282,12 +269,11 @@ class GUI:
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT));
         self.screen.fill(DARK_BLUE)
         self.font = pygame.font.Font('../fonts/OpenSans-Bold.ttf', FONT_SIZE)
-        self.y_button_stack = 0
+        self.y_button_stack = -1
 
     def create_button(self, text):
         self.y_button_stack = self.y_button_stack + 1
-        return Button(self.screen, self.font, BUTTON_X, BUTTON_Y*self.y_button_stack, BUTTON_WIDTH, BUTTON_HEIGHT, text)
-
+        return Button(self.screen, self.font, BUTTON_X, BUTTON_Y*self.y_button_stack + 25, BUTTON_WIDTH, BUTTON_HEIGHT, text)
 
 def main():
     clock = pygame.time.Clock()
@@ -305,6 +291,7 @@ def main():
     gfs_button = gui.create_button("Greedy Best-First")
     astar_button = gui.create_button("              A*")
     create_noise_map_button =  gui.create_button("Create Noise Map")
+    lw_button = gui.create_button("  Lowest weight")
 
     running = True
     mouse_down = False
@@ -339,7 +326,7 @@ def main():
 
                 _search = None
                 if (start_node != None) and (end_node != None) :
-                    _search = check_which_algorithm_was_choosen(mouse_pos, grid, start_node, end_node, bfs_button, dfs_button, gfs_button, astar_button)
+                    _search = check_which_algorithm_was_choosen(mouse_pos, grid, start_node, end_node, bfs_button, dfs_button, gfs_button, astar_button, lw_button)
                     if _search :
                         _grid.clear_searched_nodes()
                         state = States.START_SEARCH
@@ -363,15 +350,6 @@ def main():
                         node.set_state(EMPTY_NODE)
                         start_node = None
                         state = States.SET_START
-                    #     if _grid.check_if_start_node_set():
-                    #         state = States.SET_START
-                    #     else:
-                    #         state = States.SET_END
-
-                    # if node.state == START_NODE:
-                    #     node.set_state(EMPTY_NODE)
-                    #     start_node == None
-                    #     state = States.SET_START
                     if node.state == WALL_NODE:
                         node.set_state(EMPTY_NODE)
                         continue
@@ -413,14 +391,13 @@ def main():
         for node in grid:
             colour = node.get_colour()
             if colour == BLUE:
-                colour = node.calculate_gradient(start_node, COLOUR_GRADIENT) # [0,0,123]
+                colour = node.calculate_gradient(start_node, COLOUR_GRADIENT)
             pygame.draw.rect(gui.screen, colour, node.rect)
 
         clock.tick(SEARCH_SPEED)
         pygame.display.update()
 
-
-def check_which_algorithm_was_choosen(mouse_pos, grid, start_node, end_node, bfs_button, dfs_button, gfs_button, astar_button):
+def check_which_algorithm_was_choosen(mouse_pos, grid, start_node, end_node, bfs_button, dfs_button, gfs_button, astar_button, lw_button):
     if bfs_button.is_pressed(mouse_pos):
         return Breadth_First_Search(grid, start_node, end_node)
     if dfs_button.is_pressed(mouse_pos):
@@ -429,6 +406,8 @@ def check_which_algorithm_was_choosen(mouse_pos, grid, start_node, end_node, bfs
         return Greedy_Best_First_Search(grid, start_node, end_node)
     if astar_button.is_pressed(mouse_pos):
         return AStar_Search(grid, start_node, end_node)
+    if lw_button.is_pressed(mouse_pos):
+        return Heuristic_Weight(grid, start_node, end_node)
 
 def show_result(end_found, start_node, end_node):
     if not end_found:
@@ -443,7 +422,7 @@ def show_result(end_found, start_node, end_node):
     for node in path:
         if node.state == SEARCHED_NODE:
             node.state = PATH_NODE
-    print(len(path)-1)
+    print("Path length is ",len(path)-1)
 
 if __name__ == '__main__':
     main()
